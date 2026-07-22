@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Manager — CLI to Production</title>
+<style>
+  :root{
+    --bg: #0f1216;
+    --panel: #161b22;
+    --panel-2: #1c2229;
+    --border: #2a313a;
+    --text: #e6edf3;
+    --muted: #8b96a5;
+    --accent: #f2b84b;     /* amber - "prompt" accent, nods to terminal cursor */
+    --accent-2: #5eead4;   /* mint - "production/success" accent */
+    --danger: #f2685b;
+    --mono: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    --sans: "Inter", -apple-system, "Segoe UI", Tahoma, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--sans); }
+  body{ min-height:100vh; }
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 28px; border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg, var(--panel), var(--bg));
+  }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand .dot{ width:10px; height:10px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); }
+  .brand h1{ font-family:var(--mono); font-size:15px; font-weight:600; letter-spacing:.02em; margin:0; color:var(--text); }
+  .brand .sub{ font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .topbar .right{ display:flex; align-items:center; gap:12px; }
+  .badge{ font-family:var(--mono); font-size:11px; padding:4px 10px; border:1px solid var(--border); border-radius:20px; color:var(--muted); }
+  .badge.online{ color:var(--accent-2); border-color:rgba(94,234,212,.35); }
+  button.ghost{
+    background:transparent; border:1px solid var(--border); color:var(--muted);
+    padding:7px 14px; border-radius:8px; cursor:pointer; font-family:var(--sans); font-size:13px;
+  }
+  button.ghost:hover{ color:var(--text); border-color:#3a434e; }
+
+  /* ---------- auth ---------- */
+  .auth-wrap{ max-width:380px; margin:90px auto; padding:0 20px; }
+  .auth-card{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:28px; }
+  .auth-card h2{ font-family:var(--mono); font-size:16px; margin:0 0 4px; }
+  .auth-card p.hint{ color:var(--muted); font-size:13px; margin:0 0 20px; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-family:var(--mono); }
+  .field input{
+    width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    padding:10px 12px; border-radius:8px; font-size:14px; font-family:var(--sans);
+  }
+  .field input:focus{ outline:none; border-color:var(--accent); }
+  .btn-primary{
+    width:100%; background:var(--accent); color:#1a1206; border:none; font-weight:600;
+    padding:11px; border-radius:8px; cursor:pointer; font-size:14px; margin-top:6px;
+  }
+  .btn-primary:hover{ filter:brightness(1.08); }
+  .switch-mode{ text-align:center; margin-top:16px; font-size:13px; color:var(--muted); }
+  .switch-mode a{ color:var(--accent-2); cursor:pointer; text-decoration:none; }
+  .auth-error{ color:var(--danger); font-size:13px; margin-top:10px; font-family:var(--mono); min-height:16px; }
+
+  /* ---------- command bar (the CLI heritage) ---------- */
+  .cmd-wrap{ padding:22px 28px 0; }
+  .cmd-bar{
+    display:flex; align-items:center; gap:10px; background:var(--panel);
+    border:1px solid var(--border); border-radius:10px; padding:12px 16px;
+    font-family:var(--mono); font-size:13.5px;
+  }
+  .cmd-bar .prompt{ color:var(--accent); user-select:none; }
+  .cmd-bar input{
+    flex:1; background:transparent; border:none; color:var(--text);
+    font-family:var(--mono); font-size:13.5px; outline:none;
+  }
+  .cmd-bar input::placeholder{ color:#4c5561; }
+  .cmd-hint{ font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:8px; padding:0 4px; }
+  .cmd-hint b{ color:#aab4c0; font-weight:500; }
+
+  /* ---------- board ---------- */
+  .board{
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:18px;
+    padding:20px 28px 40px;
+  }
+  @media(max-width:900px){ .board{ grid-template-columns:1fr; } }
+
+  .column{ background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; min-height:200px; }
+  .col-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding:0 4px; }
+  .col-title{ font-family:var(--mono); font-size:12.5px; letter-spacing:.03em; color:var(--muted); text-transform:uppercase; }
+  .col-count{ font-family:var(--mono); font-size:11px; color:#4c5561; background:var(--bg); border:1px solid var(--border); padding:1px 8px; border-radius:20px; }
+  .col-head.todo .col-title{ color:#e6edf3; }
+  .col-head.in_progress .col-title{ color:var(--accent); }
+  .col-head.done .col-title{ color:var(--accent-2); }
+
+  .card{
+    background:var(--panel-2); border:1px solid var(--border); border-left:3px solid #4c5561;
+    border-radius:8px; padding:12px 12px; margin-bottom:10px;
+  }
+  .card.high{ border-left-color:var(--danger); }
+  .card.medium{ border-left-color:var(--accent); }
+  .card.low{ border-left-color:var(--accent-2); }
+  .card-title{ font-size:13.5px; margin:0 0 6px; word-break:break-word; }
+  .card-meta{ display:flex; gap:8px; flex-wrap:wrap; font-family:var(--mono); font-size:10.5px; color:var(--muted); margin-bottom:10px; }
+  .card-meta span{ background:var(--bg); border:1px solid var(--border); padding:2px 7px; border-radius:20px; }
+  .card-actions{ display:flex; gap:6px; }
+  .card-actions button{
+    flex:1; background:transparent; border:1px solid var(--border); color:var(--muted);
+    padding:5px 6px; border-radius:6px; font-size:11px; cursor:pointer; font-family:var(--sans);
+  }
+  .card-actions button:hover{ color:var(--text); border-color:#3a434e; }
+  .card-actions button.danger:hover{ color:var(--danger); border-color:rgba(242,104,91,.4); }
+  .empty{ color:#4c5561; font-family:var(--mono); font-size:12px; text-align:center; padding:22px 4px; }
+
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+
+  <!-- AUTH SCREEN -->
+  <div id="authView" class="auth-wrap">
+    <div class="auth-card">
+      <h2 id="authTitle">ورود</h2>
+      <p class="hint" id="authHint">به حساب کاربری‌ات وارد شو</p>
+      <div class="field">
+        <label>نام کاربری</label>
+        <input id="authUsername" type="text" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>رمز عبور</label>
+        <input id="authPassword" type="password" autocomplete="current-password" />
+      </div>
+      <button class="btn-primary" id="authSubmit">ورود</button>
+      <div class="auth-error" id="authError"></div>
+      <div class="switch-mode">
+        <span id="switchText">حساب نداری؟</span> <a id="switchLink">ثبت‌نام کن</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- APP SCREEN -->
+  <div id="appView" class="hidden">
+    <div class="topbar">
+      <div class="brand">
+        <div class="dot"></div>
+        <div>
+          <h1>task-manager</h1>
+          <div class="sub">from cli → production api</div>
+        </div>
+      </div>
+      <div class="right">
+        <span class="badge online" id="userBadge">—</span>
+        <button class="ghost" id="logoutBtn">خروج</button>
+      </div>
+    </div>
+
+    <div class="cmd-wrap">
+      <div class="cmd-bar">
+        <span class="prompt">›</span>
+        <input id="cmdInput" placeholder='add "بازبینی گزارش" --priority high --due 2026-08-01' />
+      </div>
+      <div class="cmd-hint">
+        دستورها: <b>add "عنوان" [--priority low|medium|high] [--due YYYY-MM-DD]</b> ·
+        <b>done &lt;id&gt;</b> · <b>delete &lt;id&gt;</b> · <b>list</b>
+      </div>
+    </div>
+
+    <div class="board">
+      <div class="column">
+        <div class="col-head todo">
+          <span class="col-title">To Do</span>
+          <span class="col-count" id="count-todo">0</span>
+        </div>
+        <div id="col-todo"></div>
+      </div>
+      <div class="column">
+        <div class="col-head in_progress">
+          <span class="col-title">In Progress</span>
+          <span class="col-count" id="count-in_progress">0</span>
+        </div>
+        <div id="col-in_progress"></div>
+      </div>
+      <div class="column">
+        <div class="col-head done">
+          <span class="col-title">Done</span>
+          <span class="col-count" id="count-done">0</span>
+        </div>
+        <div id="col-done"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const API_BASE = window.location.origin;
+  let token = localStorage.getItem("tm_token") || null;
+  let username = localStorage.getItem("tm_username") || null;
+  let authMode = "login";
+
+  const authView = document.getElementById("authView");
+  const appView = document.getElementById("appView");
+  const authTitle = document.getElementById("authTitle");
+  const authHint = document.getElementById("authHint");
+  const authSubmit = document.getElementById("authSubmit");
+  const authError = document.getElementById("authError");
+  const switchText = document.getElementById("switchText");
+  const switchLink = document.getElementById("switchLink");
+  const userBadge = document.getElementById("userBadge");
+
+  function setAuthMode(mode){
+    authMode = mode;
+    authError.textContent = "";
+    if(mode === "login"){
+      authTitle.textContent = "ورود";
+      authHint.textContent = "به حساب کاربری‌ات وارد شو";
+      authSubmit.textContent = "ورود";
+      switchText.textContent = "حساب نداری؟";
+      switchLink.textContent = "ثبت‌نام کن";
+    } else {
+      authTitle.textContent = "ثبت‌نام";
+      authHint.textContent = "یک حساب جدید بساز";
+      authSubmit.textContent = "ثبت‌نام";
+      switchText.textContent = "قبلاً حساب داری؟";
+      switchLink.textContent = "وارد شو";
+    }
+  }
+  switchLink.addEventListener("click", () => setAuthMode(authMode === "login" ? "register" : "login"));
+
+  authSubmit.addEventListener("click", async () => {
+    const u = document.getElementById("authUsername").value.trim();
+    const p = document.getElementById("authPassword").value;
+    authError.textContent = "";
+    if(!u || !p){ authError.textContent = "نام کاربری و رمز عبور را وارد کن"; return; }
+    try{
+      if(authMode === "register"){
+        const res = await fetch(`${API_BASE}/auth/register`, {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({username:u, password:p})
+        });
+        if(!res.ok){ const e = await res.json(); throw new Error(e.detail || "خطا در ثبت‌نام"); }
+        setAuthMode("login");
+        authError.style.color = "var(--accent-2)";
+        authError.textContent = "ثبت‌نام شد. حالا وارد شو.";
+        return;
+      }
+      const form = new URLSearchParams();
+      form.append("username", u); form.append("password", p);
+      const res = await fetch(`${API_BASE}/auth/login`, { method:"POST", body: form });
+      if(!res.ok){ throw new Error("نام کاربری یا رمز عبور اشتباه است"); }
+      const data = await res.json();
+      token = data.access_token; username = u;
+      localStorage.setItem("tm_token", token);
+      localStorage.setItem("tm_username", username);
+      enterApp();
+    }catch(err){
+      authError.style.color = "var(--danger)";
+      authError.textContent = err.message;
+    }
+  });
+
+  document.getElementById("logoutBtn").addEventListener("click", () => {
+    token = null; username = null;
+    localStorage.removeItem("tm_token"); localStorage.removeItem("tm_username");
+    appView.classList.add("hidden");
+    authView.classList.remove("hidden");
+    setAuthMode("login");
+  });
+
+  function enterApp(){
+    userBadge.textContent = "@" + username;
+    authView.classList.add("hidden");
+    appView.classList.remove("hidden");
+    loadTasks();
+  }
+
+  async function authedFetch(path, opts = {}){
+    opts.headers = Object.assign({}, opts.headers, { "Authorization": `Bearer ${token}` });
+    const res = await fetch(`${API_BASE}${path}`, opts);
+    if(res.status === 401){ document.getElementById("logoutBtn").click(); throw new Error("نشست منقضی شد"); }
+    return res;
+  }
+
+  const PRIORITY_LABEL = { high:"بالا", medium:"متوسط", low:"پایین" };
+
+  async function loadTasks(){
+    try{
+      const res = await authedFetch("/tasks");
+      const tasks = await res.json();
+      renderBoard(tasks);
+    }catch(err){ console.error(err); }
+  }
+
+  function renderBoard(tasks){
+    const cols = { todo: [], in_progress: [], done: [] };
+    tasks.forEach(t => cols[t.status]?.push(t));
+
+    ["todo","in_progress","done"].forEach(status => {
+      const container = document.getElementById(`col-${status}`);
+      document.getElementById(`count-${status}`).textContent = cols[status].length;
+      container.innerHTML = "";
+      if(cols[status].length === 0){
+        container.innerHTML = `<div class="empty">— خالی —</div>`;
+        return;
+      }
+      cols[status].forEach(t => container.appendChild(renderCard(t)));
+    });
+  }
+
+  function renderCard(t){
+    const card = document.createElement("div");
+    card.className = `card ${t.priority}`;
+    const due = t.due_date ? new Date(t.due_date).toISOString().slice(0,10) : null;
+
+    card.innerHTML = `
+      <p class="card-title">#${t.id} ${escapeHtml(t.title)}</p>
+      <div class="card-meta">
+        <span>${PRIORITY_LABEL[t.priority] || t.priority}</span>
+        ${due ? `<span>⏰ ${due}</span>` : ""}
+      </div>
+      <div class="card-actions"></div>
+    `;
+
+    const actions = card.querySelector(".card-actions");
+
+    if(t.status !== "in_progress" && t.status !== "done"){
+      actions.appendChild(makeBtn("شروع", () => updateStatus(t.id, "in_progress")));
+    }
+    if(t.status !== "done"){
+      actions.appendChild(makeBtn("انجام شد", () => updateStatus(t.id, "done")));
+    }
+    actions.appendChild(makeBtn("حذف", () => deleteTask(t.id), true));
+
+    return card;
+  }
+
+  function makeBtn(label, onClick, danger=false){
+    const b = document.createElement("button");
+    b.textContent = label;
+    if(danger) b.classList.add("danger");
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function escapeHtml(str){
+    const d = document.createElement("div");
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  async function updateStatus(id, status){
+    await authedFetch(`/tasks/${id}`, {
+      method:"PATCH",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ status })
+    });
+    loadTasks();
+  }
+
+  async function deleteTask(id){
+    await authedFetch(`/tasks/${id}`, { method:"DELETE" });
+    loadTasks();
+  }
+
+  async function createTask({title, priority, due, description}){
+    await authedFetch("/tasks", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({
+        title, priority: priority || "medium",
+        due_date: due || null, description: description || ""
+      })
+    });
+    loadTasks();
+  }
+
+  /* ---- tiny command-line parser, mirrors the Click CLI ---- */
+  function parseCommand(raw){
+    raw = raw.trim();
+    if(!raw) return null;
+
+    if(/^list\b/.test(raw)) return { type: "list" };
+
+    let m = raw.match(/^done\s+(\d+)/);
+    if(m) return { type:"done", id: parseInt(m[1]) };
+
+    m = raw.match(/^delete\s+(\d+)/);
+    if(m) return { type:"delete", id: parseInt(m[1]) };
+
+    m = raw.match(/^add\s+"([^"]+)"(.*)$/) || raw.match(/^add\s+(\S+)(.*)$/);
+    if(m){
+      const title = m[1];
+      const rest = m[2] || "";
+      const priorityMatch = rest.match(/--priority[=\s]+(\w+)/);
+      const dueMatch = rest.match(/--due[=\s]+(\d{4}-\d{2}-\d{2})/);
+      const descMatch = rest.match(/--desc[=\s]+"([^"]+)"/);
+      return {
+        type: "add", title,
+        priority: priorityMatch ? priorityMatch[1] : "medium",
+        due: dueMatch ? dueMatch[1] : null,
+        description: descMatch ? descMatch[1] : ""
+      };
+    }
+    return { type: "unknown" };
+  }
+
+  document.getElementById("cmdInput").addEventListener("keydown", async (e) => {
+    if(e.key !== "Enter") return;
+    const input = e.target;
+    const cmd = parseCommand(input.value);
+    input.value = "";
+    if(!cmd) return;
+
+    try{
+      if(cmd.type === "add") await createTask(cmd);
+      else if(cmd.type === "done") await updateStatus(cmd.id, "done");
+      else if(cmd.type === "delete") await deleteTask(cmd.id);
+      else if(cmd.type === "list") await loadTasks();
+    }catch(err){ console.error(err); }
+  });
+
+  // boot
+  if(token && username){ enterApp(); } else { setAuthMode("login"); }
+</script>
+</body>
+</html>
